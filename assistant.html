@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Профилактический ассистент</title>
+  <style>
+    :root { --primary: #0056b3; --bg: #f4f6f8; --card: #ffffff; --warn: #fff3cd; --text: #333; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+    .container { max-width: 768px; margin: 0 auto; }
+    .card { background: var(--card); padding: 24px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    h2 { margin-top: 0; color: #1a1a1a; }
+    .legal-note { background: var(--warn); border-left: 5px solid #856404; padding: 16px; margin-bottom: 20px; color: #856404; }
+    label { display: block; margin-top: 14px; font-weight: 600; font-size: 0.95rem; }
+    textarea, input[type="text"], input[type="date"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 1rem; }
+    .checkbox-group { margin-top: 12px; }
+    .checkbox-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+    button { padding: 12px 20px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; width: 100%; max-width: 360px; }
+    button.secondary { background: #6c757d; }
+    #suggestions-box { margin-top: 20px; padding: 18px; background: #f8f9fa; border: 1px solid #e2e6ea; border-radius: 8px; display: none; }
+    #suggestions-box.visible { display: block; }
+    .suggestion-item { margin: 6px 0; }
+    .status-ok { color: #155724; }
+    .status-warn { color: #856404; }
+    hr { border: 0; border-top: 1px solid #eee; margin: 24px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h2>Профилактический ассистент</h2>
+
+      <div class="legal-note">
+        <strong>Важно:</strong> ИИ‑подсказки — это только варианты квалификации. Окончательное решение о правовой оценке ситуации и дальнейших действиях принимает сотрудник в соответствии с законом. Не вводите персональные данные граждан (ФИО, телефоны, паспортные данные).
+      </div>
+
+      <label>Опишите ситуацию (только факты, без имён и адресов):</label>
+      <textarea id="situation" rows="4" placeholder="Например: в чате угрожают, требуют деньги, шум в подъезде ночью..."></textarea>
+
+      <button onclick="getSuggestions()" style="max-width: none;">Получить подсказки квалификации</button>
+
+      <div id="suggestions-box">
+        <strong>Возможны признаки следующих статей. Требуется проверка сотрудником.</strong>
+        <div id="suggestions-text" style="margin: 12px 0;"></div>
+        <p style="font-size: 0.85rem; color: #555;">Окончательное решение о квалификации принимает сотрудник в соответствии с законом.</p>
+      </div>
+
+      <hr>
+
+      <label>Куда направить информацию (можно выбрать несколько):</label>
+      <div class="checkbox-group">
+        <div class="checkbox-row"><input type="checkbox" id="route_police"> <label style="display: inline; font-weight: normal;">Полиция (если есть признаки преступления)</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="route_social"> <label style="display: inline; font-weight: normal;">Соцслужба (риск неблагополучия)</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="route_psych"> <label style="display: inline; font-weight: normal;">Психолог / служба примирения</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="route_job"> <label style="display: inline; font-weight: normal;">Центр занятости</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="route_mse"> <label style="display: inline; font-weight: normal;">МСЭ / реабилитация (если есть потребность)</label></div>
+      </div>
+
+      <label>Чек‑лист профилактики:</label>
+      <div class="checkbox-group">
+        <div class="checkbox-row"><input type="checkbox" id="check_talk"> <label style="display: inline; font-weight: normal;">Проведена беседа с заявителем</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="check_notify"> <label style="display: inline; font-weight: normal;">Информирована школа / работодатель / опека (если применимо)</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="check_referral"> <label style="display: inline; font-weight: normal;">Направлено уведомление в смежную службу</label></div>
+      </div>
+
+      <label>Дата повторного визита:</label>
+      <input type="date" id="visit_date">
+
+      <label>Адрес места события (для маршрутизации):</label>
+      <input type="text" id="address" placeholder="Улица, дом, подъезд">
+
+      <label>Прикрепите фото/скриншот (с метаданными):</label>
+      <input type="file" id="photo" accept="image/*">
+
+      <label>ФИО и должность сотрудника (для отчётности):</label>
+      <input type="text" id="officer" placeholder="Иванов И.И., участковый">
+
+      <br><br>
+      <button onclick="copyCard()" class="secondary">Копировать карточку для отчёта</button>
+      <p style="font-size: 0.8rem; color: #777; margin-top: 8px;">Карточка копируется в буфер обмена — вставьте в чат/письмо/документ.</p>
+    </div>
+  </div>
+
+  <script>
+    function getSuggestions() {
+      const text = document.getElementById('situation').value.toLowerCase();
+      const box = document.getElementById('suggestions-box');
+      const out = document.getElementById('suggestions-text');
+
+      let suggestions = [];
+
+      // Триггеры по ключевым словам (подсказки по статьям)
+      if (text.includes('угроза') || text.includes('убью') || text.includes('расправлюсь') || text.includes('приеду')) {
+        suggestions.push('ст. 119 УК РФ (угроза убийством или причинением тяжкого вреда здоровью)');
+      }
+      if (text.includes('украли') || text.includes('деньги') || text.includes('перевод') || text.includes('кинули') || text.includes('мошенник')) {
+        suggestions.push('ст. 159 УК РФ (мошенничество)');
+      }
+      if (text.includes('шум') || text.includes('драка') || text.includes('мат') || text.includes('хулиган')) {
+        suggestions.push('ст. 20.1 КоАП РФ (мелкое хулиганство)');
+      }
+      if (text.includes('избиение') || text.includes('побои') || text.includes('ударил')) {
+        suggestions.push('ст. 6.1.1 КоАП РФ / ст. 115 УК РФ (в зависимости от тяжести)');
+      }
+      if (text.includes('пфр') || text.includes('перерасчёт') || text.includes('срочно код') || text.includes('подтвердите код')) {
+        suggestions.push('ст. 159 УК РФ (мошенничество в сфере соцвыплат)');
+      }
+
+      if (suggestions.length === 0) {
+        out.innerHTML = '<span class="status-warn">Требуется дополнительная информация: место, время, участники, доказательства.</span>';
+      } else {
+        let list = suggestions.map(s => '<div class="suggestion-item">• ' + s + '</div>').join('');
+        out.innerHTML = list;
+      }
+
+      box.classList.add('visible');
+    }
+
+    function copyCard() {
+      const s = document.getElementById('situation').value || 'Не указано';
+      const a = document.getElementById('address').value || 'Не указан';
+      const d = document.getElementById('visit_date').value || 'Не указана';
+      const o = document.getElementById('officer').value || 'Не указано';
+      const suggestions = document.getElementById('suggestions-text').innerText || 'Подсказки не получены';
+
+      const police = document.getElementById('route_police').checked ? 'Да' : 'Нет';
+      const social = document.getElementById('route_social').checked ? 'Да' : 'Нет';
+      const psych = document.getElementById('route_psych').checked ? 'Да' : 'Нет';
+      const job = document.getElementById('route_job').checked ? 'Да' : 'Нет';
+      const mse = document.getElementById('route_mse').checked ? 'Да' : 'Нет';
+
+      const talk = document.getElementById('check_talk').checked ? 'Да' : 'Нет';
+      const notify = document.getElementById('check_notify').checked ? 'Да' : 'Нет';
+      const referral = document.getElementById('check_referral').checked ? 'Да' : 'Нет';
+
+      const text = `КАРТОЧКА ОБРАЩЕНИЯ\n\nСитуация: ${s}\nАдрес: ${a}\nДата повторного визита: ${d}\nСотрудник: ${o}\n\nПодсказки квалификации:\n${suggestions}\n\nКуда направлено:\n- Полиция: ${police}\n- Соцслужба: ${social}\n- Психолог: ${psych}\n- Центр занятости: ${job}\n- МСЭ/реабилитация: ${mse}\n\nЧек‑лист:\n- Проведена беседа: ${talk}\n- Информированы смежные службы: ${notify}\n- Уведомление направлено: ${referral}\n\nОкончательное решение о квалификации принимает сотрудник в соответствии с законом.\n`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Карточка скопирована в буфер обмена! Вставьте в чат, письмо или документ.');
+      }).catch(err => {
+        console.error('Не удалось скопировать', err);
+        alert('Не удалось скопировать автоматически. Выделите текст карточки вручную.');
+      });
+    }
+  </script>
+</body>
+</html>
